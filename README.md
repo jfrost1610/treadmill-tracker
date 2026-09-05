@@ -2,8 +2,7 @@
 
 A single-page web app for building and running incline treadmill walk routines. Set up a sequence of stages — incline %, speed, and duration — and it cycles through them automatically with a countdown timer and an audio cue at each transition.
 
-**Live app:** https://yourusername.github.io/treadmill-tracker/
-*(replace `yourusername` with your actual GitHub username once Pages is live)*
+**Live app:** https://jfrost1610.github.io/treadmill-tracker/
 
 ## Features
 
