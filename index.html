@@ -69,6 +69,7 @@
   .btn-primary.pause{background:var(--incline); color:#1a1206;}
   .btn-secondary{background:var(--surface-2); color:var(--text); border:1px solid var(--line);}
   .btn-danger{background:transparent; color:var(--danger); border:1px solid rgba(217,105,95,.4);}
+  button:disabled{opacity:.4; cursor:default;}
 
   /* ---- Builder ---- */
   .builder{background:var(--surface); border-radius:var(--radius); border:1px solid var(--line); padding:16px;}
@@ -163,6 +164,7 @@
     <div class="next-up" id="nextUp">&nbsp;</div>
     <div class="controls">
       <button class="btn-primary" id="startBtn">Start</button>
+      <button class="btn-secondary" id="skipBtn">Skip stage</button>
       <button class="btn-secondary" id="resetBtn">Reset</button>
     </div>
   </div>
@@ -223,6 +225,7 @@
     clockLabel: document.getElementById('clockLabel'),
     nextUp: document.getElementById('nextUp'),
     startBtn: document.getElementById('startBtn'),
+    skipBtn: document.getElementById('skipBtn'),
     resetBtn: document.getElementById('resetBtn'),
     fIncline: document.getElementById('fIncline'),
     fSpeed: document.getElementById('fSpeed'),
@@ -500,6 +503,7 @@
     updatePlayerDisplay();
     el.startBtn.textContent = 'Pause';
     el.startBtn.classList.add('pause');
+    el.skipBtn.disabled = false;
     renderTerrain();
     clearInterval(state.timer);
     state.timer = setInterval(tick, 1000);
@@ -522,6 +526,7 @@
     state.totalRemainingSec = 0;
     el.startBtn.textContent = 'Start';
     el.startBtn.classList.remove('pause');
+    el.skipBtn.disabled = true;
     el.stageName.textContent = 'Ready';
     el.inclineVal.textContent = '–';
     el.speedVal.textContent = '–';
@@ -562,6 +567,7 @@
     renderTerrain();
     el.startBtn.textContent = 'Start';
     el.startBtn.classList.remove('pause');
+    el.skipBtn.disabled = true;
   }
 
   function updatePlayerDisplay(){
@@ -577,6 +583,28 @@
       ? 'Next: <b>'+next.incline+'% @ '+next.speed+' '+state.unit+'</b> for '+next.minutes+' min'
       : 'Final stage — routine ends after this';
   }
+
+  function skipStage(){
+    if(!state.running && !state.paused) return;
+    var wasPaused = state.paused;
+    clearInterval(state.timer);
+    // account for remaining time on the skipped stage against the overall clock
+    state.totalRemainingSec -= state.remainingSec;
+    state.currentIdx += 1;
+    if(state.currentIdx >= state.stages.length){
+      finishRoutine();
+      return;
+    }
+    state.remainingSec = state.stages[state.currentIdx].minutes*60;
+    cueTransition();
+    renderTerrain();
+    updatePlayerDisplay();
+    if(!wasPaused){
+      state.timer = setInterval(tick, 1000);
+    }
+  }
+  el.skipBtn.addEventListener('click', skipStage);
+  el.skipBtn.disabled = true;
 
   el.startBtn.addEventListener('click', function(){
     if(state.running) pauseRoutine();
