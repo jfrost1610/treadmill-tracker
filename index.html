@@ -114,6 +114,19 @@
   }
   .unit-toggle button.active{background:var(--speed); color:#0a1a22; border-color:var(--speed);}
 
+  .backup-row{display:flex; gap:8px; margin-bottom:16px;}
+  .backup-row button{
+    font-size:13px; padding:10px 0; background:var(--surface-2); color:var(--text); border:1px solid var(--line); border-radius:10px;
+  }
+  .backup-note{font-size:11px; color:var(--text-dim); margin:-10px 0 16px; text-align:center;}
+  .toast{
+    position:fixed; left:50%; bottom:28px; transform:translateX(-50%);
+    background:var(--surface-2); border:1px solid var(--line); color:var(--text);
+    padding:10px 16px; border-radius:10px; font-size:13px; opacity:0; pointer-events:none;
+    transition:opacity .25s ease; z-index:50; max-width:80%; text-align:center;
+  }
+  .toast.show{opacity:1;}
+
   .hidden{display:none !important;}
 </style>
 </head>
@@ -126,6 +139,13 @@
     <button id="unitMph" class="active">mph</button>
     <button id="unitKph">km/h</button>
   </div>
+
+  <div class="backup-row">
+    <button id="exportBtn">Export backup</button>
+    <button id="importBtn">Import backup</button>
+    <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+  </div>
+  <div class="backup-note">Save a backup after building your routine — iOS can wipe saved data unexpectedly.</div>
 
   <div class="terrain-wrap">
     <div class="terrain-label"><span>Elevation profile</span><span id="terrainTotal">0 min total</span></div>
@@ -174,6 +194,8 @@
   </div>
 </div>
 
+<div class="toast" id="toast"></div>
+
 <script>
 (function(){
   var STORE_KEY = 'incline-routine:v1';
@@ -207,20 +229,31 @@
     fMinutes: document.getElementById('fMinutes'),
     addBtn: document.getElementById('addBtn'),
     unitMph: document.getElementById('unitMph'),
-    unitKph: document.getElementById('unitKph')
+    unitKph: document.getElementById('unitKph'),
+    exportBtn: document.getElementById('exportBtn'),
+    importBtn: document.getElementById('importBtn'),
+    importFile: document.getElementById('importFile'),
+    toast: document.getElementById('toast')
   };
 
-  // ---------- persistence ----------
-  async function save(){
+  function showToast(msg){
+    el.toast.textContent = msg;
+    el.toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(function(){ el.toast.classList.remove('show'); }, 2600);
+  }
+
+  // ---------- persistence (plain localStorage — works on any host, including GitHub Pages) ----------
+  function save(){
     try{
-      await window.storage.set(STORE_KEY, JSON.stringify({stages: state.stages, unit: state.unit}), false);
+      localStorage.setItem(STORE_KEY, JSON.stringify({stages: state.stages, unit: state.unit}));
     }catch(e){ /* storage unavailable — session-only, no interruption to the user */ }
   }
-  async function load(){
+  function load(){
     try{
-      var res = await window.storage.get(STORE_KEY, false);
-      if(res && res.value){
-        var data = JSON.parse(res.value);
+      var raw = localStorage.getItem(STORE_KEY);
+      if(raw){
+        var data = JSON.parse(raw);
         state.stages = data.stages || [];
         state.unit = data.unit || 'mph';
       }
@@ -228,6 +261,85 @@
     applyUnitUI();
     renderAll();
   }
+
+  // ---------- backup: export / import ----------
+  function currentBackupPayload(){
+    return {
+      app: 'incline-routine-backup',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      unit: state.unit,
+      stages: state.stages
+    };
+  }
+
+  async function exportBackup(){
+    if(state.stages.length===0){
+      showToast('Add a stage first — nothing to back up yet.');
+      return;
+    }
+    var payload = currentBackupPayload();
+    var json = JSON.stringify(payload, null, 2);
+    var filename = 'incline-routine-backup.json';
+    var file = new File([json], filename, {type:'application/json'});
+
+    // Prefer the native share sheet on iOS (Save to Files, AirDrop, etc.)
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{
+        await navigator.share({files:[file], title:'Incline routine backup'});
+        showToast('Backup shared.');
+        return;
+      }catch(e){
+        // user cancelled the share sheet — not an error, just stop here
+        if(e && e.name === 'AbortError') return;
+      }
+    }
+
+    // Fallback: trigger a normal download
+    try{
+      var blob = new Blob([json], {type:'application/json'});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+      showToast('Backup downloaded.');
+    }catch(e){
+      showToast('Could not create backup file.');
+    }
+  }
+
+  function importBackup(file){
+    var reader = new FileReader();
+    reader.onload = function(){
+      try{
+        var data = JSON.parse(reader.result);
+        if(!data || !Array.isArray(data.stages)) throw new Error('bad format');
+        var valid = data.stages.every(function(s){
+          return s && typeof s.incline==='number' && typeof s.speed==='number' && typeof s.minutes==='number';
+        });
+        if(!valid) throw new Error('bad stage data');
+        state.stages = data.stages;
+        state.unit = data.unit === 'kph' ? 'kph' : 'mph';
+        applyUnitUI();
+        save();
+        renderAll();
+        showToast('Routine restored from backup.');
+      }catch(e){
+        showToast('That file doesn\'t look like a valid backup.');
+      }
+    };
+    reader.onerror = function(){ showToast('Could not read that file.'); };
+    reader.readAsText(file);
+  }
+
+  el.exportBtn.addEventListener('click', exportBackup);
+  el.importBtn.addEventListener('click', function(){ el.importFile.click(); });
+  el.importFile.addEventListener('change', function(){
+    var f = el.importFile.files && el.importFile.files[0];
+    if(f) importBackup(f);
+    el.importFile.value = '';
+  });
 
   // ---------- audio cue (no external asset) ----------
   var actx;
